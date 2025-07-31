@@ -11,3 +11,5 @@ python-dotenv==1.0.0
 pytest==7.4.3
 pytest-asyncio==0.21.1
 psycopg2-binary==2.9.9
+gunicorn==21.2.0
+openai==1.14.3
