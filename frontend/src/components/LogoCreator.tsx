@@ -1,10 +1,10 @@
-"use client";
+"use client"
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Download, Palette, Type, Sparkles, RefreshCw, Heart, History, Settings, Zap, Image, FileImage, AlertCircle, CheckCircle } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Sparkles, RefreshCw, Heart, History, Settings, Zap, Image, FileImage, AlertCircle, CheckCircle, Info, ExternalLink, Cloud, Shield } from 'lucide-react';
 
-// Updated type definitions to match backend response
-interface GeneratedLogo {
+// Updated interfaces to match Vertex AI backend
+interface LogoResponse {
   id: string;
   name: string;
   image_url: string;
@@ -16,45 +16,71 @@ interface GeneratedLogo {
     quality: string;
     industry: string;
     generation_method: string;
+    location?: string;
   };
   colors_used: string[];
   generation_time: number;
   confidence_score: number;
   prompt_used: string;
-  dalle_revised_prompt?: string;
+}
+
+interface GenerationStats {
+  total_time: number;
+  logos_generated: number;
+  ai_model: string;
+  quality: string;
+  approximate_cost: string;
+  real_ai_generated: boolean;
+}
+
+interface BusinessInfo {
+  name: string;
+  industry: string;
+  description?: string;
+  target_audience?: string;
+}
+
+interface LogoStyle {
+  style_type: string;
+  color_palette: string[];
+  font_preference?: string;
+}
+
+interface LogoGenerationRequest {
+  business_info: BusinessInfo;
+  style: LogoStyle;
+  variations?: number;
+  imagen_model?: string;
 }
 
 interface GenerationResponse {
   success: boolean;
   data: {
-    logos: GeneratedLogo[];
-    generation_stats: {
-      total_time: number;
-      logos_generated: number;
-      ai_model: string;
-      quality: string;
-      approximate_cost: string;
-      real_ai_generated: boolean;
-    };
+    logos: LogoResponse[];
+    generation_stats: GenerationStats;
   };
 }
 
-const LogoCreator = () => {
+const VertexLogoCreator = () => {
+  // Fix hydration: Initialize with stable values and use useEffect for client-side only data
+  const [isClient, setIsClient] = useState(false);
   const [businessName, setBusinessName] = useState('');
   const [businessType, setBusinessType] = useState('');
   const [businessDescription, setBusinessDescription] = useState('');
   const [targetAudience, setTargetAudience] = useState('');
   const [selectedStyle, setSelectedStyle] = useState('modern');
   const [selectedColors, setSelectedColors] = useState(['#3B82F6', '#1E40AF']);
+  const [selectedModel, setSelectedModel] = useState('imagegeneration@006');
   const [variations] = useState(2);
-  const [generatedLogos, setGeneratedLogos] = useState<GeneratedLogo[]>([]);
+  const [generatedLogos, setGeneratedLogos] = useState<LogoResponse[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeTab, setActiveTab] = useState('generate');
   const [favorites, setFavorites] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [downloadingLogo, setDownloadingLogo] = useState<string | null>(null);
-  const [generationStats, setGenerationStats] = useState<any>(null);
+  const [generationStats, setGenerationStats] = useState<GenerationStats | null>(null);
   const [backendConnected, setBackendConnected] = useState<boolean | null>(null);
+  const [debugInfo, setDebugInfo] = useState<any>(null);
 
   // Backend API base URL
   const API_BASE_URL = 'http://localhost:8000';
@@ -73,6 +99,21 @@ const LogoCreator = () => {
     { id: 'professional', name: 'Professional', desc: 'Corporate and trustworthy' }
   ];
 
+  const vertexModels = [
+    { 
+      id: 'imagegeneration@006', 
+      name: 'Imagen 3 (Latest)', 
+      desc: 'Latest Vertex AI Imagen model with improved quality', 
+      cost: '$0.030 per image' 
+    },
+    { 
+      id: 'imagegeneration@005', 
+      name: 'Imagen 2.5', 
+      desc: 'Previous generation model, slightly lower cost', 
+      cost: '$0.025 per image' 
+    }
+  ];
+
   const colorPalettes = [
     ['#3B82F6', '#1E40AF'], // Blue
     ['#EF4444', '#DC2626'], // Red
@@ -84,28 +125,91 @@ const LogoCreator = () => {
     ['#14B8A6', '#0D9488'], // Teal
   ];
 
-  // Check backend connection on component mount
-  useEffect(() => {
-    checkBackendConnection();
-  }, []);
+  // Helper function to safely stringify objects
+  const safeStringify = (obj: any): string => {
+    try {
+      return JSON.stringify(obj, null, 2);
+    } catch (e) {
+      return `[Unable to stringify: ${String(obj)}]`;
+    }
+  };
 
-  const checkBackendConnection = async () => {
+  // Check backend connection function using useCallback to avoid hoisting issues
+  const checkBackendConnection = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/`);
       const data = await response.json();
       
-      if (data.status === 'healthy') {
+      console.log('🔍 Backend response:', data);
+      
+      // More flexible backend connection check
+      if (data.status === 'healthy' || data.status === 'ready') {
         setBackendConnected(true);
-        console.log('✅ Backend connected:', data);
+        setDebugInfo(data);
+        setError(null); // Clear any previous errors
+        console.log('✅ Vertex AI backend connected:', data);
+      } else if (data.status === 'complete' && data.summary?.ready_for_generation) {
+        // Handle diagnostics response format
+        setBackendConnected(true);
+        setDebugInfo(data);
+        setError(null);
+        console.log('✅ Vertex AI backend ready (from diagnostics):', data);
       } else {
         setBackendConnected(false);
+        setDebugInfo(data);
+        console.log('⚠️ Backend responded but not fully ready:', data);
+        if (data.status === 'auth_missing') {
+          setError('Google Cloud authentication not configured. Please run setup commands.');
+        }
       }
     } catch (error) {
       console.error('❌ Backend connection failed:', error);
       setBackendConnected(false);
+      setError(`Backend connection failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  };
+  }, [API_BASE_URL]);
 
+  // Run diagnostics function using useCallback
+  const runDiagnostics = useCallback(async () => {
+    try {
+      setError(null);
+      const response = await fetch(`${API_BASE_URL}/api/v1/diagnostics`);
+      
+      if (!response.ok) {
+        throw new Error(`Diagnostics failed: ${response.status} ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      console.log('🔍 Diagnostics results:', data);
+      setDebugInfo(data);
+      
+      // Check if the system is ready for generation
+      if (data.summary?.ready_for_generation) {
+        setBackendConnected(true); // Enable the generate button
+        setError(null);
+        console.log('✅ Diagnostics passed! System ready for generation');
+        alert('✅ Diagnostics passed! Vertex AI system is ready for logo generation.');
+      } else if (data.results?.recommendations?.length > 0) {
+        setError(`Diagnostics found issues: ${data.results.recommendations.join('. ')}`);
+        setBackendConnected(false);
+      } else {
+        setError('Diagnostics completed but system may not be ready for generation.');
+        setBackendConnected(false);
+      }
+    } catch (error: any) {
+      console.error('❌ Diagnostics failed:', error);
+      setError(`Failed to run diagnostics: ${error instanceof Error ? error.message : 'Unknown error'}. Backend may not be running.`);
+      setBackendConnected(false);
+    }
+  }, [API_BASE_URL]);
+
+  // Fix hydration: Ensure client-side only rendering for dynamic content
+  useEffect(() => {
+    setIsClient(true);
+    checkBackendConnection();
+  }, [checkBackendConnection]);
+
+  // Generate logos function
   const generateLogos = async () => {
     if (!businessName.trim()) {
       setError('Please enter a business name');
@@ -118,7 +222,7 @@ const LogoCreator = () => {
     }
 
     if (!backendConnected) {
-      setError('Backend is not connected. Please check if the server is running on http://localhost:8000');
+      setError('Vertex AI backend is not ready. Please check authentication and run diagnostics.');
       return;
     }
 
@@ -127,8 +231,8 @@ const LogoCreator = () => {
     setGenerationStats(null);
     
     try {
-      // Prepare request payload matching backend schema
-      const requestPayload = {
+      // Prepare request payload for Vertex AI backend
+      const requestPayload: LogoGenerationRequest = {
         business_info: {
           name: businessName,
           industry: businessType,
@@ -137,13 +241,14 @@ const LogoCreator = () => {
         },
         style: {
           style_type: selectedStyle,
-          color_palette: selectedColors,
+          color_palette: selectedColors.slice(0, 2),
           font_preference: "sans-serif"
         },
-        variations: variations
+        variations: variations,
+        imagen_model: selectedModel
       };
 
-      console.log('🚀 Sending request to backend:', requestPayload);
+      console.log('🚀 Sending request to Vertex AI backend:', requestPayload);
 
       const response = await fetch(`${API_BASE_URL}/api/v1/generate-logos`, {
         method: 'POST',
@@ -153,33 +258,68 @@ const LogoCreator = () => {
         body: JSON.stringify(requestPayload)
       });
 
+      console.log('📊 Response status:', response.status);
+      console.log('📨 Response headers:', Object.fromEntries(response.headers.entries()));
+
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
-        throw new Error(errorData.detail || `HTTP ${response.status}`);
+        let errorData;
+        try {
+          errorData = await response.json();
+          console.error('❌ Error response data:', errorData);
+        } catch (parseError) {
+          console.error('❌ Could not parse error response as JSON');
+          errorData = { detail: `HTTP ${response.status}: ${response.statusText}` };
+        }
+        
+        const errorMessage = errorData?.detail || errorData?.message || `HTTP ${response.status}: ${response.statusText}`;
+        throw new Error(errorMessage);
       }
 
       const data: GenerationResponse = await response.json();
+      console.log('✅ Success response:', data);
       
-      if (data.success) {
-        setGeneratedLogos(data.data.logos);
+      if (data.success && data.data) {
+        setGeneratedLogos(data.data.logos || []);
         setGenerationStats(data.data.generation_stats);
-        console.log('✅ Logos generated successfully:', data.data.generation_stats);
+        console.log('✅ Vertex AI logos generated successfully:', data.data.generation_stats);
+        
+        if (data.data.logos?.length === 0) {
+          setError('No logos were generated. Please try again with different parameters.');
+        }
       } else {
-        throw new Error('Generation failed');
+        console.error('❌ Success flag is false or missing data:', data);
+        throw new Error('Generation completed but no logos were returned');
       }
       
     } catch (error: any) {
       console.error('❌ Error generating logos:', error);
       
-      if (error.message.includes('429')) {
-        setError('Rate limit reached. Please wait before generating more logos.');
-      } else if (error.message.includes('500')) {
-        setError('Server error. Please check if OpenAI API key is configured.');
-      } else if (error.message.includes('Failed to fetch')) {
-        setError('Cannot connect to backend. Please ensure the server is running on http://localhost:8000');
+      let errorMessage = 'Unknown error occurred';
+      
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      } else if (error && typeof error === 'object') {
+        errorMessage = error.detail || error.message || safeStringify(error);
+      }
+      
+      // Enhanced error categorization for Vertex AI
+      if (errorMessage.includes('429') || errorMessage.toLowerCase().includes('rate limit')) {
+        setError('Rate limit reached. Please wait 30 seconds before generating more logos.');
+      } else if (errorMessage.includes('authentication') || errorMessage.includes('401')) {
+        setError('Authentication failed. Please run: gcloud auth application-default login');
+      } else if (errorMessage.includes('403') || errorMessage.toLowerCase().includes('forbidden')) {
+        setError('Access denied. Please enable Vertex AI API and billing in Google Cloud Console.');
+      } else if (errorMessage.includes('404')) {
+        setError('Vertex AI service not found. Please check if Vertex AI API is enabled in your project.');
+      } else if (errorMessage.includes('billing')) {
+        setError('Billing not enabled. Please enable billing for your Google Cloud project.');
+      } else if (errorMessage.includes('Failed to fetch') || errorMessage.toLowerCase().includes('network')) {
+        setError('Cannot connect to backend. Please ensure the Vertex AI server is running on http://localhost:8000');
         setBackendConnected(false);
       } else {
-        setError(`Failed to generate logos: ${error.message}`);
+        setError(`Failed to generate logos: ${errorMessage}`);
       }
     } finally {
       setIsGenerating(false);
@@ -194,114 +334,30 @@ const LogoCreator = () => {
     );
   };
 
-  const downloadLogo = async (logo: GeneratedLogo, format: 'png' | 'jpg') => {
+  const downloadLogo = async (logo: LogoResponse, format: 'png' | 'jpg') => {
     try {
       setDownloadingLogo(logo.id + format);
       
-      // First try backend download endpoint
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/v1/logo/${logo.id}/download/${format}`);
-        
-        if (response.ok) {
-          const blob = await response.blob();
-          const url = URL.createObjectURL(blob);
-          
-          const element = document.createElement('a');
-          element.href = url;
-          element.download = `${businessName || 'logo'}-${logo.id}.${format}`;
-          document.body.appendChild(element);
-          element.click();
-          document.body.removeChild(element);
-          URL.revokeObjectURL(url);
-          return;
-        }
-      } catch (backendError) {
-        console.warn('Backend download failed, trying direct download:', backendError);
-      }
+      const response = await fetch(`${API_BASE_URL}/api/v1/logo/${logo.id}/download/${format}`);
       
-      // Fallback to direct download from DALL-E URL
-      const response = await fetch(logo.image_url, { mode: 'cors' });
       if (!response.ok) {
-        throw new Error(`Direct download failed: ${response.statusText}`);
+        throw new Error(`Download failed: ${response.status} ${response.statusText}`);
       }
       
-      const blob = await response.blob();
-      
-      // Convert to desired format if needed
-      if (format === 'jpg' && blob.type.includes('png')) {
-        // Convert PNG to JPG using canvas
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        const img = new Image();
-        
-        const convertedBlob = await new Promise<Blob>((resolve, reject) => {
-          img.onload = () => {
-            canvas.width = img.width;
-            canvas.height = img.height;
-            
-            // Fill with white background for JPG
-            ctx!.fillStyle = 'white';
-            ctx!.fillRect(0, 0, canvas.width, canvas.height);
-            ctx!.drawImage(img, 0, 0);
-            
-            canvas.toBlob((result) => {
-              if (result) resolve(result);
-              else reject(new Error('Canvas conversion failed'));
-            }, 'image/jpeg', 0.9);
-          };
-          
-          img.onerror = () => reject(new Error('Image load failed'));
-          img.src = URL.createObjectURL(blob);
-        });
-        
-        const url = URL.createObjectURL(convertedBlob);
-        const element = document.createElement('a');
-        element.href = url;
-        element.download = `${businessName || 'logo'}-${logo.id}.${format}`;
-        document.body.appendChild(element);
-        element.click();
-        document.body.removeChild(element);
-        URL.revokeObjectURL(url);
-      } else {
-        // Direct download
-        const url = URL.createObjectURL(blob);
-        const element = document.createElement('a');
-        element.href = url;
-        element.download = `${businessName || 'logo'}-${logo.id}.${format}`;
-        document.body.appendChild(element);
-        element.click();
-        document.body.removeChild(element);
-        URL.revokeObjectURL(url);
-      }
-      
-    } catch (error: any) {
-      console.error('Download failed:', error);
-      setError(`Failed to download ${format.toUpperCase()}: ${error.message}. The image URL may have expired.`);
-    } finally {
-      setDownloadingLogo(null);
-    }
-  };
-
-  const downloadFromUrl = async (logo: GeneratedLogo) => {
-    try {
-      setDownloadingLogo(logo.id + 'url');
-      
-      // Download directly from DALL-E URL
-      const response = await fetch(logo.image_url);
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       
       const element = document.createElement('a');
       element.href = url;
-      element.download = `${businessName || 'logo'}-${logo.id}-dalle.png`;
+      element.download = `${businessName || 'logo'}-${logo.id}.${format}`;
       document.body.appendChild(element);
       element.click();
       document.body.removeChild(element);
       URL.revokeObjectURL(url);
       
     } catch (error: any) {
-      console.error('Direct download failed:', error);
-      setError(`Failed to download from URL: ${error.message}`);
+      console.error('Download failed:', error);
+      setError(`Failed to download ${format.toUpperCase()}: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setDownloadingLogo(null);
     }
@@ -331,19 +387,38 @@ const LogoCreator = () => {
     }
   };
 
+  const calculateEstimatedCost = () => {
+    const modelConfig = vertexModels.find(m => m.id === selectedModel);
+    const costPerImage = modelConfig?.id === 'imagegeneration@006' ? 0.03 : 0.025;
+    return (costPerImage * variations).toFixed(3);
+  };
+
+  // Don't render dynamic content until client-side
+  if (!isClient) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <Cloud className="w-16 h-16 text-blue-400 mx-auto mb-4 animate-pulse" />
+          <h1 className="text-2xl font-bold text-white mb-2">Loading Vertex AI Logo Generator...</h1>
+          <p className="text-gray-400">Initializing Google Cloud integration</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
       {/* Header */}
       <header className="border-b border-white/10 backdrop-blur-sm bg-black/20">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-xl flex items-center justify-center">
-                <Sparkles className="w-6 h-6 text-white" />
+              <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-xl flex items-center justify-center">
+                <Cloud className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-white">LogoAI</h1>
-                <p className="text-sm text-gray-400">Real AI-Powered Logo Generation with DALL-E 3</p>
+                <h1 className="text-2xl font-bold text-white">Vertex AI Logo Generator</h1>
+                <p className="text-sm text-gray-400">Powered by Google Vertex AI Imagen • Professional Authentication</p>
               </div>
             </div>
             <div className="flex items-center space-x-4">
@@ -357,7 +432,7 @@ const LogoCreator = () => {
                   <div className="w-2 h-2 bg-red-400 rounded-full"></div>
                 )}
                 <span className="text-xs text-gray-400">
-                  {backendConnected === null ? 'Checking...' : backendConnected ? 'Connected' : 'Disconnected'}
+                  {backendConnected === null ? 'Checking...' : backendConnected ? 'Vertex AI Ready' : 'Not Ready'}
                 </span>
               </div>
               
@@ -365,7 +440,14 @@ const LogoCreator = () => {
                 onClick={checkBackendConnection}
                 className="px-3 py-1 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors text-sm"
               >
-                Reconnect
+                Refresh Status
+              </button>
+              
+              <button 
+                onClick={runDiagnostics}
+                className="px-3 py-1 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-lg hover:bg-blue-500/30 transition-colors text-sm"
+              >
+                Run Diagnostics
               </button>
             </div>
           </div>
@@ -379,14 +461,45 @@ const LogoCreator = () => {
             <AlertCircle className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
             <div className="flex-1">
               <p className="text-red-200">{error}</p>
-              <button 
-                onClick={() => setError(null)}
-                className="mt-2 text-sm text-red-300 hover:text-red-100 underline"
-              >
-                Dismiss
-              </button>
+              <div className="mt-2 space-x-2">
+                <button 
+                  onClick={() => setError(null)}
+                  className="text-sm text-red-300 hover:text-red-100 underline"
+                >
+                  Dismiss
+                </button>
+                <button 
+                  onClick={runDiagnostics}
+                  className="text-sm text-blue-300 hover:text-blue-100 underline"
+                >
+                  Run Diagnostics
+                </button>
+                <a
+                  href={`${API_BASE_URL}/api/v1/setup-guide`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-green-300 hover:text-green-100 underline inline-flex items-center gap-1"
+                >
+                  Setup Guide <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
             </div>
           </div>
+        )}
+
+        {/* Debug Info Display */}
+        {debugInfo && (
+          <details className="mb-6">
+            <summary className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg cursor-pointer text-blue-300 hover:text-blue-200">
+              <Info className="w-4 h-4 inline mr-2" />
+              Vertex AI Backend Debug Information (Click to expand)
+            </summary>
+            <div className="mt-2 p-4 bg-black/20 border border-white/10 rounded-lg">
+              <pre className="text-xs text-gray-300 whitespace-pre-wrap overflow-x-auto">
+                {safeStringify(debugInfo)}
+              </pre>
+            </div>
+          </details>
         )}
 
         {/* Success/Stats Display */}
@@ -395,7 +508,7 @@ const LogoCreator = () => {
             <CheckCircle className="w-5 h-5 text-green-400 mt-0.5 flex-shrink-0" />
             <div className="flex-1">
               <p className="text-green-200 font-medium">
-                Successfully generated {generationStats.logos_generated} AI logos using {generationStats.ai_model}
+                Successfully generated {generationStats.logos_generated} Vertex AI logos using {generationStats.ai_model}
               </p>
               <p className="text-sm text-green-300 mt-1">
                 Generation time: {generationStats.total_time.toFixed(1)}s • 
@@ -436,7 +549,7 @@ const LogoCreator = () => {
               <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-6 border border-white/10">
                 <h2 className="text-xl font-semibold text-white mb-6 flex items-center">
                   <Settings className="w-5 h-5 mr-2" />
-                  Logo Settings
+                  Vertex AI Logo Settings
                 </h2>
 
                 <div className="space-y-6">
@@ -500,6 +613,38 @@ const LogoCreator = () => {
                     />
                   </div>
 
+                  {/* Vertex AI Model Selection */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-3">
+                      Google Vertex AI Model
+                    </label>
+                    <div className="space-y-3">
+                      {vertexModels.map(model => (
+                        <button
+                          key={model.id}
+                          type="button"
+                          onClick={() => setSelectedModel(model.id)}
+                          className={`w-full p-3 rounded-lg border-2 transition-all text-left ${
+                            selectedModel === model.id
+                              ? 'border-blue-400 bg-blue-400/20 text-blue-400'
+                              : 'border-white/20 bg-white/5 text-gray-300 hover:border-white/40'
+                          }`}
+                        >
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <div className="font-medium flex items-center gap-2">
+                                <Shield className="w-4 h-4" />
+                                {model.name}
+                              </div>
+                              <div className="text-xs opacity-75">{model.desc}</div>
+                            </div>
+                            <div className="text-xs font-mono">{model.cost}</div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   {/* Style Selection */}
                   <div>
                     <label className="block text-sm font-medium text-gray-300 mb-3">
@@ -527,8 +672,8 @@ const LogoCreator = () => {
                   {/* Color Palette */}
                   <div>
                     <label className="block text-sm font-medium text-gray-300 mb-3">
-                      <Palette className="w-4 h-4 inline mr-2" />
-                      Color Palette
+                      <Sparkles className="w-4 h-4 inline mr-2" />
+                      Color Palette (Vertex AI optimized)
                     </label>
                     <div className="grid grid-cols-4 gap-3">
                       {colorPalettes.map((palette, index) => (
@@ -549,29 +694,55 @@ const LogoCreator = () => {
                     </div>
                   </div>
 
+                  {/* Cost Estimate */}
+                  <div className="p-3 bg-black/20 rounded-lg border border-yellow-500/30">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-yellow-400">Estimated Cost:</span>
+                      <span className="text-lg font-bold text-yellow-400">${calculateEstimatedCost()}</span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {variations} logos × {vertexModels.find(m => m.id === selectedModel)?.cost || '$0.030'} (Vertex AI)
+                    </p>
+                  </div>
+
                   {/* Generate Button */}
                   <button
                     type="button"
                     onClick={generateLogos}
-                    disabled={isGenerating || !businessName.trim() || !backendConnected}
-                    className="w-full py-4 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg font-semibold hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center space-x-2"
+                    disabled={isGenerating || !businessName.trim() || !businessType || !backendConnected}
+                    className="w-full py-4 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg font-semibold hover:from-blue-600 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center space-x-2"
                   >
                     {isGenerating ? (
                       <>
                         <RefreshCw className="w-5 h-5 animate-spin" />
-                        <span>Generating with DALL-E 3...</span>
+                        <span>Generating with Vertex AI...</span>
                       </>
                     ) : (
                       <>
-                        <Sparkles className="w-5 h-5" />
-                        <span>Generate Real AI Logos</span>
+                        <Cloud className="w-5 h-5" />
+                        <span>Generate Vertex AI Logos</span>
                       </>
                     )}
                   </button>
                   
+                  {/* Status Messages */}
                   {!backendConnected && (
-                    <p className="text-xs text-red-400 text-center">
-                      Backend disconnected. Please start the server.
+                    <div className="text-xs text-center space-y-1">
+                      <p className="text-red-400">
+                        ❌ Vertex AI backend not ready
+                      </p>
+                      <button
+                        onClick={runDiagnostics}
+                        className="text-blue-400 hover:text-blue-300 underline"
+                      >
+                        Click "Run Diagnostics" above to enable generation
+                      </button>
+                    </div>
+                  )}
+                  
+                  {backendConnected && (
+                    <p className="text-xs text-green-400 text-center">
+                      ✅ Vertex AI ready for generation
                     </p>
                   )}
                 </div>
@@ -582,7 +753,7 @@ const LogoCreator = () => {
             <div className="lg:col-span-2">
               <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-6 border border-white/10 min-h-96">
                 <h2 className="text-xl font-semibold text-white mb-6">
-                  AI Generated Logos
+                  Google Vertex AI Generated Logos
                   {generationStats && (
                     <span className="text-sm text-gray-400 ml-2">
                       ({generationStats.ai_model} • {generationStats.quality})
@@ -592,51 +763,43 @@ const LogoCreator = () => {
 
                 {generatedLogos.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-64 text-gray-400">
-                    <Sparkles className="w-16 h-16 mb-4 opacity-50" />
-                    <p className="text-lg mb-2">Ready to create your AI logo?</p>
+                    <Cloud className="w-16 h-16 mb-4 opacity-50" />
+                    <p className="text-lg mb-2">Ready to create with Vertex AI?</p>
                     <p className="text-sm text-center">
-                      Enter your business details and click "Generate Real AI Logos" to see DALL-E 3 powered designs
+                      Enter your business details and click generate to create professional logos
                     </p>
-                    <p className="text-xs text-center mt-2 text-yellow-400">
-                      💰 Each generation costs ~$0.04-0.08 using OpenAI credits
-                    </p>
+                    <div className="mt-4 text-xs text-center space-y-1">
+                      <p className="text-blue-400">🔐 Secure OAuth2 authentication</p>
+                      <p className="text-green-400">☁️ Google Cloud Vertex AI integration</p>
+                      <p className="text-purple-400">🔍 Comprehensive diagnostics included</p>
+                    </div>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {generatedLogos.map((logo) => (
                       <div key={logo.id} className="p-4 bg-white/5 border border-white/10 rounded-lg">
-                        {/* AI Generated Image */}
+                        {/* Vertex AI Generated Image */}
                         <div className="w-full h-48 flex items-center justify-center bg-white rounded-lg mb-4 overflow-hidden">
                           <img 
                             src={logo.image_url} 
                             alt={logo.name}
                             className="max-w-full max-h-full object-contain"
-                            crossOrigin="anonymous"
                             onLoad={(e) => {
-                              console.log('✅ Image loaded successfully:', logo.image_url);
+                              console.log('✅ Vertex AI image loaded successfully:', logo.image_url);
                             }}
                             onError={(e) => {
-                              console.error('❌ Image load failed:', logo.image_url);
+                              console.error('❌ Vertex AI image load failed:', logo.image_url);
                               const target = e.currentTarget;
-                              
-                              // Try to reload once
-                              if (!target.dataset.retried) {
-                                target.dataset.retried = 'true';
-                                setTimeout(() => {
-                                  target.src = logo.image_url + '?retry=' + Date.now();
-                                }, 1000);
-                                return;
-                              }
                               
                               // Show error placeholder
                               target.src = 'data:image/svg+xml;base64,' + btoa(`
                                 <svg width="400" height="200" xmlns="http://www.w3.org/2000/svg">
                                   <rect width="400" height="200" fill="#f3f4f6"/>
                                   <text x="200" y="90" font-family="Arial" font-size="16" fill="#9ca3af" text-anchor="middle">
-                                    Image Load Failed
+                                    Vertex AI Load Failed
                                   </text>
                                   <text x="200" y="110" font-family="Arial" font-size="12" fill="#9ca3af" text-anchor="middle">
-                                    DALL-E URL may have expired
+                                    Image may not be available
                                   </text>
                                   <text x="200" y="130" font-family="Arial" font-size="10" fill="#9ca3af" text-anchor="middle">
                                     Try generating new logos
@@ -654,27 +817,29 @@ const LogoCreator = () => {
                             <p>Style: {logo.style_info.style} • Variation {logo.style_info.variation}</p>
                             <p>AI Model: {logo.style_info.ai_model} • Quality: {logo.style_info.quality}</p>
                             <p>Confidence: {(logo.confidence_score * 100).toFixed(0)}% • Time: {logo.generation_time.toFixed(1)}s</p>
+                            {logo.style_info.location && (
+                              <p>Location: {logo.style_info.location} • Method: {logo.style_info.generation_method}</p>
+                            )}
                           </div>
                           
-                          {/* URL Info for Debugging */}
+                          {/* Local Path Info */}
                           <div className="mb-3 p-2 bg-black/20 rounded text-xs">
-                            <p className="text-gray-400 mb-1">Image URL:</p>
-                            <p className="text-blue-400 break-all">{logo.image_url}</p>
+                            <p className="text-gray-400 mb-1">Local Path:</p>
+                            <p className="text-green-400 break-all">{logo.local_path || 'Not saved locally'}</p>
                             <p className="text-gray-500 mt-1">
-                              Status: {logo.image_url ? 'URL Available' : 'No URL'} • 
-                              Local: {logo.local_path ? 'Saved' : 'Not Saved'}
+                              Status: {logo.local_path ? 'Saved Locally' : 'Memory Only'} • 
+                              Source: Vertex AI
                             </p>
                           </div>
-                          {logo.dalle_revised_prompt && (
-                            <details className="mb-3">
-                              <summary className="text-xs text-blue-400 cursor-pointer hover:text-blue-300">
-                                View DALL-E Prompt
-                              </summary>
-                              <p className="text-xs text-gray-400 mt-1 p-2 bg-black/20 rounded">
-                                {logo.dalle_revised_prompt}
-                              </p>
-                            </details>
-                          )}
+                          
+                          <details className="mb-3">
+                            <summary className="text-xs text-blue-400 cursor-pointer hover:text-blue-300">
+                              View Vertex AI Prompt
+                            </summary>
+                            <p className="text-xs text-gray-400 mt-1 p-2 bg-black/20 rounded">
+                              {logo.prompt_used}
+                            </p>
+                          </details>
                           
                           {/* Color Swatches */}
                           <div className="flex gap-2 mb-4">
@@ -702,22 +867,7 @@ const LogoCreator = () => {
                               <Heart className={`w-4 h-4 ${favorites.includes(logo.id) ? 'fill-current' : ''}`} />
                             </button>
                             
-                            {/* Direct Download from DALL-E URL */}
-                            <button
-                              type="button"
-                              onClick={() => downloadFromUrl(logo)}
-                              disabled={downloadingLogo === logo.id + 'url'}
-                              className="px-3 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-lg hover:bg-blue-500/30 transition-colors disabled:opacity-50 flex items-center gap-1"
-                            >
-                              {downloadingLogo === logo.id + 'url' ? (
-                                <RefreshCw className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <Download className="w-4 h-4" />
-                              )}
-                              <span className="text-xs">Original</span>
-                            </button>
-                            
-                            {/* PNG Download via Backend */}
+                            {/* PNG Download */}
                             <button
                               type="button"
                               onClick={() => downloadLogo(logo, 'png')}
@@ -732,7 +882,7 @@ const LogoCreator = () => {
                               <span className="text-xs">PNG</span>
                             </button>
                             
-                            {/* JPEG Download via Backend */}
+                            {/* JPEG Download */}
                             <button
                               type="button"
                               onClick={() => downloadLogo(logo, 'jpg')}
@@ -750,7 +900,7 @@ const LogoCreator = () => {
                             {/* Feedback Button */}
                             <button
                               type="button"
-                              onClick={() => submitFeedback(logo.id, 5, 'Great logo!')}
+                              onClick={() => submitFeedback(logo.id, 5, 'Great Vertex AI logo!')}
                               className="px-3 py-2 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-lg hover:bg-purple-500/30 transition-colors flex items-center gap-1"
                             >
                               <span className="text-xs">👍</span>
@@ -769,8 +919,8 @@ const LogoCreator = () => {
         {activeTab === 'history' && (
           <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-8 border border-white/10 text-center">
             <History className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-            <h2 className="text-xl font-semibold text-white mb-2">Logo History</h2>
-            <p className="text-gray-400">Your previously generated DALL-E 3 logos will appear here</p>
+            <h2 className="text-xl font-semibold text-white mb-2">Vertex AI Logo History</h2>
+            <p className="text-gray-400">Your previously generated Google Vertex AI logos will appear here</p>
           </div>
         )}
 
@@ -778,8 +928,8 @@ const LogoCreator = () => {
           <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-8 border border-white/10">
             <div className="text-center mb-6">
               <Heart className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-              <h2 className="text-xl font-semibold text-white mb-2">Favorite Logos</h2>
-              <p className="text-gray-400">Your favorited AI logos will be saved here</p>
+              <h2 className="text-xl font-semibold text-white mb-2">Favorite Vertex AI Logos</h2>
+              <p className="text-gray-400">Your favorited Google Vertex AI logos will be saved here</p>
             </div>
             
             {favorites.length > 0 && (
@@ -796,16 +946,26 @@ const LogoCreator = () => {
                         />
                       </div>
                       <h3 className="text-white font-medium">{logo.name}</h3>
-                      <p className="text-sm text-gray-400">Favorited AI logo</p>
+                      <p className="text-sm text-gray-400">Favorited Vertex AI logo</p>
                     </div>
                   ))}
               </div>
             )}
           </div>
         )}
+
+        {/* Footer */}
+        <footer className="mt-12 pt-8 border-t border-white/10 text-center text-gray-400">
+          <p className="text-sm">
+            Powered by Google Vertex AI Imagen • Professional Authentication • Enterprise Grade
+          </p>
+          <p className="text-xs mt-2">
+            Secure OAuth2 • Cloud-native • Enhanced diagnostics • Production ready
+          </p>
+        </footer>
       </div>
     </div>
   );
 };
 
-export default LogoCreator;
+export default VertexLogoCreator;
