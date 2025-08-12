@@ -12,4 +12,6 @@ pytest==7.4.3
 pytest-asyncio==0.21.1
 psycopg2-binary==2.9.9
 gunicorn==21.2.0
-openai==1.14.3
+google-auth==2.25.2
+google-cloud-aiplatform==1.38.1
+requests==2.31.0
