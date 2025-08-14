@@ -1,52 +1,17 @@
 version: '3.8'
-
 services:
-  frontend:
-    build: 
-      context: ./frontend
-      dockerfile: Dockerfile.dev
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
-
   backend:
-    build: 
-      context: ./backend
-      dockerfile: Dockerfile.dev
+    build: ./backend
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql://postgres:password@db:5432/logoai_db
-      - REDIS_URL=redis://redis:6379
-      - CORS_ORIGINS=http://localhost:3000
-    depends_on:
-      - db
-      - redis
+      - OPENAI_API_KEY=${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}
     volumes:
       - ./backend:/app
-
-  db:
-    image: postgres:14
-    environment:
-      POSTGRES_DB: logoai_db
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
+    
+  frontend:
+    build: ./frontend
     ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-
-volumes:
-  postgres_data:
-  redis_data:
+      - "3000:3000"
+    depends_on:
+      - backend
