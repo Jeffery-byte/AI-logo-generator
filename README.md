@@ -25,13 +25,13 @@ A full-stack application that leverages **Google Vertex AI Imagen** to generate 
 ## Demo & Screenshots
 
 ### Main Interface
-![Main Interface](docs/screenshots/main-interface.png)
+![Main Interface](screenshots/Main interfaceg)
 
 ### Generated Logos with Vertex AI
-![Generated Logos](docs/screenshots/generated-logos.png)
+![Generated Logos](screenshots/Generated Logos)
 
 ### Diagnostics Dashboard
-![Diagnostics](docs/screenshots/diagnostics.png)
+![Diagnostics](screenshots/Diagnostics)
 
 ## 🏗️ Architecture
 
