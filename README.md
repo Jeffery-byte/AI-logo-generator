@@ -23,15 +23,22 @@ A full-stack application that leverages **Google Vertex AI Imagen** to generate 
 - **Enterprise Security**: Proper credential management and secure API handling
 
 ## Demo & Screenshots
+🎥 Demo
+
+<video src="https://github.com/user-attachments/assets/efe8987f-7ed7-40be-acd1-5b229683be02" 
+       width="600" autoplay loop muted playsinline>
+</video>
+
+
 
 ### Main Interface
-![Main Interface](screenshots/Main interfaceg)
+[Main Interface](screenshots/Main interfaceg)
 
 ### Generated Logos with Vertex AI
-![Generated Logos](screenshots/Generated Logos)
+[Generated Logos](screenshots/Generated Logos)
 
 ### Diagnostics Dashboard
-![Diagnostics](screenshots/Diagnostics)
+[Diagnostics](screenshots/Diagnostics)
 
 ## 🏗️ Architecture
 
