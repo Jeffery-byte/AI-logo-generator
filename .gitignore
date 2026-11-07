@@ -1,1 +1,24 @@
-node_modules
+# Dependencies and Python artifacts
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*-credentials.json
+service-account*.json
+.vscode/
+.idea/
+# Build and runtime output
+.next/
+out/
+build/
+coverage/
+*.tsbuildinfo
+*.log
+.DS_Store
+backend/generated_logos/

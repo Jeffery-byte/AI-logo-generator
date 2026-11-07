@@ -80,7 +80,7 @@ const VertexLogoCreator = () => {
   const [downloadingLogo, setDownloadingLogo] = useState<string | null>(null);
   const [generationStats, setGenerationStats] = useState<GenerationStats | null>(null);
   const [backendConnected, setBackendConnected] = useState<boolean | null>(null);
-  const [debugInfo, setDebugInfo] = useState<any>(null);
+  const [debugInfo, setDebugInfo] = useState<unknown>(null);
 
   // Backend API base URL
   const API_BASE_URL = 'http://localhost:8000';
@@ -126,10 +126,10 @@ const VertexLogoCreator = () => {
   ];
 
   // Helper function to safely stringify objects
-  const safeStringify = (obj: any): string => {
+  const safeStringify = (obj: unknown): string => {
     try {
       return JSON.stringify(obj, null, 2);
-    } catch (e) {
+    } catch {
       return `[Unable to stringify: ${String(obj)}]`;
     }
   };
@@ -196,7 +196,7 @@ const VertexLogoCreator = () => {
         setError('Diagnostics completed but system may not be ready for generation.');
         setBackendConnected(false);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('❌ Diagnostics failed:', error);
       setError(`Failed to run diagnostics: ${error instanceof Error ? error.message : 'Unknown error'}. Backend may not be running.`);
       setBackendConnected(false);
@@ -266,7 +266,7 @@ const VertexLogoCreator = () => {
         try {
           errorData = await response.json();
           console.error('❌ Error response data:', errorData);
-        } catch (parseError) {
+        } catch {
           console.error('❌ Could not parse error response as JSON');
           errorData = { detail: `HTTP ${response.status}: ${response.statusText}` };
         }
@@ -291,7 +291,7 @@ const VertexLogoCreator = () => {
         throw new Error('Generation completed but no logos were returned');
       }
       
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('❌ Error generating logos:', error);
       
       let errorMessage = 'Unknown error occurred';
@@ -301,7 +301,8 @@ const VertexLogoCreator = () => {
       } else if (typeof error === 'string') {
         errorMessage = error;
       } else if (error && typeof error === 'object') {
-        errorMessage = error.detail || error.message || safeStringify(error);
+        const details = error as Record<string, unknown>;
+        errorMessage = String(details.detail || details.message || safeStringify(error));
       }
       
       // Enhanced error categorization for Vertex AI
@@ -355,7 +356,7 @@ const VertexLogoCreator = () => {
       document.body.removeChild(element);
       URL.revokeObjectURL(url);
       
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Download failed:', error);
       setError(`Failed to download ${format.toUpperCase()}: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
@@ -488,7 +489,7 @@ const VertexLogoCreator = () => {
         )}
 
         {/* Debug Info Display */}
-        {debugInfo && (
+        {debugInfo != null && (
           <details className="mb-6">
             <summary className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg cursor-pointer text-blue-300 hover:text-blue-200">
               <Info className="w-4 h-4 inline mr-2" />
@@ -735,7 +736,7 @@ const VertexLogoCreator = () => {
                         onClick={runDiagnostics}
                         className="text-blue-400 hover:text-blue-300 underline"
                       >
-                        Click "Run Diagnostics" above to enable generation
+                        Click &quot;Run Diagnostics&quot; above to enable generation
                       </button>
                     </div>
                   )}
@@ -892,7 +893,7 @@ const VertexLogoCreator = () => {
                               {downloadingLogo === logo.id + 'jpg' ? (
                                 <RefreshCw className="w-4 h-4 animate-spin" />
                               ) : (
-                                <Image className="w-4 h-4" />
+                                <Image aria-label="Image format" className="w-4 h-4" />
                               )}
                               <span className="text-xs">JPG</span>
                             </button>

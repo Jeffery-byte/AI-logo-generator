@@ -705,6 +705,11 @@ async def startup_event():
         logger.error("   6. Enable billing for your project")
         return
     
+    # Live diagnostics include a billable image-generation request; opt in explicitly.
+    if os.getenv("RUN_STARTUP_DIAGNOSTICS", "false").lower() != "true":
+        logger.info("Startup diagnostics skipped. Set RUN_STARTUP_DIAGNOSTICS=true to opt in.")
+        return
+
     # Run comprehensive diagnostics
     logger.info("🔍 Running comprehensive Vertex AI diagnostics...")
     diagnostic_results = await VertexAIDiagnostics.full_vertex_diagnostic()
