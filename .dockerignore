@@ -25,3 +25,11 @@
 **/values.dev.yaml
 LICENSE
 README.md
+
+**/venv
+**/.env.*
+**/*.pem
+**/service-account*.json
+**/*-credentials.json
+**/generated_logos
+**/.next
