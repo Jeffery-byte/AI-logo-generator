@@ -785,7 +785,7 @@ const VertexLogoCreator = () => {
                             src={logo.image_url} 
                             alt={logo.name}
                             className="max-w-full max-h-full object-contain"
-                            onLoad={(e) => {
+                            onLoad={() => {
                               console.log('✅ Vertex AI image loaded successfully:', logo.image_url);
                             }}
                             onError={(e) => {
