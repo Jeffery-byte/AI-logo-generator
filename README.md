@@ -72,4 +72,28 @@ The source for the frontend is in `frontend/src/app/` and
 `frontend/src/components/`; the backend entry point is `backend/main.py`.
 `compose.yaml` builds the backend container only; local Google credentials must be
 provided separately to a container. The development commands above are the
-primary setup path. Tests and production deployment hardening are follow-up work.
+primary setup path. Paid provider integration and production deployment hardening are follow-up work.
+
+## Checks
+
+```sh
+python -m pip install -r backend/requirements-dev.txt
+pytest backend/tests -q
+python scripts/check_secrets.py
+cd frontend
+npm ci
+npm audit
+npm run lint
+npm run build
+```
+
+The backend compatibility checks mock cloud authentication/provider behavior; they
+do not measure live generation quality or performance. GitHub Actions runs the
+build, dependency audits, tests, and a limited current-file credential pattern
+check. Dependabot checks for dependency updates weekly. Historical credentials
+must still be revoked at the provider; deleting source files does not revoke them.
+
+The frontend temporarily overrides Next.js's PostCSS dependency and the
+TypeScript parser's minimatch dependency to patched versions. The production
+build and lint checks validate those overrides; remove them once upstream
+versions resolve to the same patched dependencies without overrides.

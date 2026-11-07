@@ -97,14 +97,14 @@ class BusinessInfo(BaseModel):
 
 class LogoStyle(BaseModel):
     style_type: str = Field(..., pattern="^(modern|vintage|bold|elegant|playful|professional)$")
-    color_palette: List[str] = Field(..., min_items=1, max_items=3)
+    color_palette: List[str] = Field(..., min_length=1, max_length=3)
     font_preference: Optional[str] = "sans-serif"
 
 class LogoGenerationRequest(BaseModel):
     business_info: BusinessInfo
     style: LogoStyle
-    variations: Optional[int] = Field(1, ge=1, le=2)
-    imagen_model: Optional[str] = Field("imagegeneration@006", pattern="^(imagegeneration@006|imagegeneration@005)$")
+    variations: int = Field(1, ge=1, le=2)
+    imagen_model: str = Field("imagegeneration@006", pattern="^(imagegeneration@006|imagegeneration@005)$")
 
 class LogoResponse(BaseModel):
     id: str
@@ -852,7 +852,7 @@ async def generate_vertex_logos_endpoint(request: LogoGenerationRequest):
             "success": True,
             "data": {
                 "logos": logos,
-                "generation_stats": stats.dict()
+                "generation_stats": stats.model_dump()
             }
         }
         
